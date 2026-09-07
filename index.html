@@ -141,6 +141,13 @@
       background: #3d2416; color: #fff6ea; padding: 10px 14px; border-radius: 999px;
       font-size: 14px; display: none;
     }
+    @media print {
+      .gate, .bar, .hint, .toast { display: none !important; }
+      .app.on { display: block !important; }
+      body { background: #fff; }
+      .item { box-shadow: none; break-inside: avoid; }
+      .item textarea { border: 1px solid #d2ae86; }
+    }
   </style>
 </head>
 <body>
@@ -164,8 +171,9 @@
         <button type="button" id="plus">A+</button>
         <span class="grow"></span>
         <button type="button" class="primary" id="copy">复制全部</button>
-        <button type="button" class="primary" id="dl">导出给 Documents</button>
-        <p class="hint">笔记请直接写在本页（Safari 会记住）。iPhone 不能从“文件”用 Safari 打开本地网页。若要离线：分享 → 添加到主屏幕。</p>
+        <button type="button" class="primary" id="pdf">保存 PDF</button>
+        <button type="button" class="primary" id="epub">保存 EPUB</button>
+        <p class="hint">先在本页写笔记。PDF：系统打印窗口里选“存储为 PDF”。EPUB：用“图书”打开。以后要改内容，请回到本页再保存。</p>
       </div>
       <div id="list"></div>
     </div>
@@ -222,76 +230,102 @@
         el.addEventListener("input", saveNotes);
       });
     }
-    function packPage() {
-      const notes = [].map.call(document.querySelectorAll(".item textarea"), (el) => el.value);
-      const items = Q.map((q, i) => {
-        const note = (notes[i] || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
-        return `<section class="q"><p>${q}</p><textarea placeholder="写笔记…">${note}</textarea></section>`;
-      }).join("");
-      return `<!DOCTYPE html><html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>笔记</title>
-<style>
-body{margin:0;background:#f3e3cf;color:#4a2e1c;font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC",serif}
-.wrap{width:min(760px,92vw);margin:0 auto;padding:22px 0 64px}
-.q{background:#fff7ee;border:1px solid #e2c3a0;border-radius:16px;padding:14px;margin:0 0 14px}
-p{margin:0 0 10px;line-height:1.7;font-size:18px}
-textarea{width:100%;min-height:88px;border:1px dashed #d2ae86;border-radius:12px;padding:10px;background:#fffaf4;font:inherit;line-height:1.6;box-sizing:border-box}
-.tip{color:#7a5340;font-size:13px;margin:0 0 14px}
-</style></head><body><div class="wrap">
-<p class="tip">在“文件”中请打开 notes.webarchive。Safari 不能直接打开普通的 .html 本地文件。</p>
-${items}
-</div></body></html>`;
-    }
-    function toArchive(html) {
-      const raw = btoa(unescape(encodeURIComponent(html))).replace(/(.{76})/g, "$1\n");
-      return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>WebMainResource</key>
-  <dict>
-    <key>WebResourceData</key>
-    <data>
-${raw}
-    </data>
-    <key>WebResourceMIMEType</key>
-    <string>text/html</string>
-    <key>WebResourceTextEncodingName</key>
-    <string>UTF-8</string>
-    <key>WebResourceURL</key>
-    <string>file:///notes.html</string>
-  </dict>
-</dict>
-</plist>`;
-    }
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch(() => {});
     }
-    async function saveArchive() {
+    function esc(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function currentNotes() {
+      return [].map.call(document.querySelectorAll(".item textarea"), (el) => el.value);
+    }
+    function crc32(bytes) {
+      let c = ~0;
+      for (let i = 0; i < bytes.length; i++) c = (c >>> 8) ^ crc32.t[(c ^ bytes[i]) & 255];
+      return (~c) >>> 0;
+    }
+    crc32.t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      crc32.t[i] = c >>> 0;
+    }
+    function u16(n) { return new Uint8Array([n & 255, (n >>> 8) & 255]); }
+    function u32(n) { return new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]); }
+    function cat(parts) {
+      const size = parts.reduce((n, p) => n + p.length, 0);
+      const out = new Uint8Array(size);
+      let o = 0;
+      parts.forEach((p) => { out.set(p, o); o += p.length; });
+      return out;
+    }
+    function zipStore(files) {
+      const enc = new TextEncoder();
+      const locals = [];
+      const centrals = [];
+      let offset = 0;
+      files.forEach((file) => {
+        const name = enc.encode(file.name);
+        const data = file.data;
+        const crc = crc32(data);
+        const local = cat([
+          u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+          u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0),
+          name, data
+        ]);
+        locals.push(local);
+        centrals.push(cat([
+          u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+          u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0),
+          u16(0), u16(0), u16(0), u32(0), u32(offset), name
+        ]));
+        offset += local.length;
+      });
+      const central = cat(centrals);
+      const end = cat([
+        u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+        u32(central.length), u32(offset), u16(0)
+      ]);
+      return cat([...locals, central, end]);
+    }
+    function makeEpub() {
       saveNotes();
-      const archive = toArchive(packPage());
-      const file = new File([archive], "notes.webarchive", { type: "application/octet-stream" });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-          say("请选择“存储到文件”");
-          return;
-        } catch (err) {
-          if (err && err.name === "AbortError") return;
-        }
-      }
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "pack", body: archive });
-        location.href = new URL("notes.webarchive?t=" + Date.now(), location.href).href;
-        say("正在保存 notes.webarchive");
-        return;
-      }
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([archive], { type: "application/octet-stream" }));
-      a.download = "notes.webarchive";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      say("已保存 notes.webarchive");
+      const notes = currentNotes();
+      const body = Q.map((q, i) => {
+        const note = esc(notes[i]).replace(/\n/g, "<br>");
+        return `<section><h2>${esc(q)}</h2><p>${note || " "}</p></section>`;
+      }).join("");
+      const xhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-Hans" lang="zh-Hans">
+<head><meta charset="utf-8"/><title>2026</title>
+<style>
+body{font-family:serif;line-height:1.7;color:#4a2e1c}
+section{margin:0 0 1.4em}
+h2{font-size:1.05em;font-weight:600}
+p{min-height:2.5em;padding:.6em .7em;border:1px dashed #d2ae86;background:#fff7ee}
+</style></head>
+<body>${body}</body></html>`;
+      const enc = new TextEncoder();
+      return zipStore([
+        { name: "mimetype", data: enc.encode("application/epub+zip") },
+        { name: "META-INF/container.xml", data: enc.encode(`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`) },
+        { name: "OEBPS/content.opf", data: enc.encode(`<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bid" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:identifier id="bid">2026-notes</dc:identifier>
+<dc:title>2026</dc:title>
+<dc:language>zh-Hans</dc:language>
+</metadata>
+<manifest>
+<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+<item id="c1" href="notes.xhtml" media-type="application/xhtml+xml"/>
+</manifest>
+<spine><itemref idref="c1"/></spine>
+</package>`) },
+        { name: "OEBPS/nav.xhtml", data: enc.encode(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="notes.xhtml">2026</a></li></ol></nav></body></html>`) },
+        { name: "OEBPS/notes.xhtml", data: enc.encode(xhtml) }
+      ]);
     }
     function applyFs() {
       document.documentElement.style.setProperty("--fs", fs + "px");
@@ -339,7 +373,31 @@ ${raw}
         say("已复制");
       }
     };
-    $("dl").onclick = () => { saveArchive(); };
+    $("pdf").onclick = () => {
+      saveNotes();
+      say("在打印窗口选择“存储为 PDF”");
+      setTimeout(() => window.print(), 200);
+    };
+    $("epub").onclick = async () => {
+      const data = makeEpub();
+      const file = new File([data], "notes.epub", { type: "application/epub+zip" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          say("可选“图书”或“存储到文件”");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+        }
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([data], { type: "application/epub+zip" }));
+      a.download = "notes.epub";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      say("已保存 EPUB，可用“图书”打开");
+    };
   </script>
 </body>
 </html>

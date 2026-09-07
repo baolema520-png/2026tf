@@ -160,8 +160,8 @@
         <button type="button" id="plus">A+</button>
         <span class="grow"></span>
         <button type="button" class="primary" id="copy">复制全部</button>
-        <button type="button" class="primary" id="dl">下载</button>
-        <p class="hint">iPhone/iPad：下载后到“文件”里点按 <b>notes.webarchive</b>，可用 Safari 打开并写笔记。</p>
+        <button type="button" class="primary" id="dl">保存到文件</button>
+        <p class="hint">在分享菜单里选“存储到文件”。之后在“文件”中打开 <b>notes.webarchive</b>（不要用 .html）。</p>
       </div>
       <div id="list"></div>
     </div>
@@ -259,12 +259,35 @@ ${raw}
 </dict>
 </plist>`;
     }
-    function pullFile(name, blob) {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    }
+    async function saveArchive() {
+      saveNotes();
+      const archive = toArchive(packPage());
+      const file = new File([archive], "notes.webarchive", { type: "application/x-webarchive" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          say("请选择“存储到文件”");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+        }
+      }
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "pack", body: archive });
+        location.href = new URL("notes.webarchive?t=" + Date.now(), location.href).href;
+        say("正在保存 notes.webarchive");
+        return;
+      }
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
+      a.href = URL.createObjectURL(new Blob([archive], { type: "application/octet-stream" }));
+      a.download = "notes.webarchive";
+      document.body.appendChild(a);
       a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+      a.remove();
+      say("已保存 notes.webarchive");
     }
     function applyFs() {
       document.documentElement.style.setProperty("--fs", fs + "px");
@@ -312,18 +335,7 @@ ${raw}
         say("已复制");
       }
     };
-    $("dl").onclick = () => {
-      saveNotes();
-      const html = packPage();
-      const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-      if (ios) {
-        pullFile("notes.webarchive", new Blob([toArchive(html)], { type: "application/x-webarchive" }));
-        say("已下载 webarchive，用 Safari 打开");
-      } else {
-        pullFile("notes.html", new Blob([html], { type: "text/html;charset=utf-8" }));
-        say("已开始下载");
-      }
-    };
+    $("dl").onclick = () => { saveArchive(); };
   </script>
 </body>
 </html>

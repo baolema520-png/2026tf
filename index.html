@@ -6,6 +6,10 @@
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="referrer" content="no-referrer">
   <title>2026</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="2026">
+  <meta name="mobile-web-app-capable" content="yes">
   <style>
     :root {
       --bg: #f3e3cf;
@@ -160,8 +164,8 @@
         <button type="button" id="plus">A+</button>
         <span class="grow"></span>
         <button type="button" class="primary" id="copy">复制全部</button>
-        <button type="button" class="primary" id="dl">保存到文件</button>
-        <p class="hint">在分享菜单里选“存储到文件”。之后在“文件”中打开 <b>notes.webarchive</b>（不要用 .html）。</p>
+        <button type="button" class="primary" id="dl">导出给 Documents</button>
+        <p class="hint">笔记请直接写在本页（Safari 会记住）。iPhone 不能从“文件”用 Safari 打开本地网页。若要离线：分享 → 添加到主屏幕。</p>
       </div>
       <div id="list"></div>
     </div>
@@ -265,7 +269,7 @@ ${raw}
     async function saveArchive() {
       saveNotes();
       const archive = toArchive(packPage());
-      const file = new File([archive], "notes.webarchive", { type: "application/x-webarchive" });
+      const file = new File([archive], "notes.webarchive", { type: "application/octet-stream" });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({ files: [file] });

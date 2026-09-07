@@ -1,21 +1,25 @@
-let pack = "";
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "pack") pack = event.data.body || "";
+const CACHE = "p2026-v3";
+const ASSETS = ["./", "./index.html", "./manifest.webmanifest"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+  self.skipWaiting();
 });
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+  );
+  self.clients.claim();
+});
+
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (!url.pathname.endsWith("/notes.webarchive")) return;
-  event.respondWith((async () => {
-    const body = pack;
-    pack = "";
-    if (!body) return new Response("missing", { status: 404 });
-    return new Response(body, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/x-webarchive",
-        "Content-Disposition": "attachment; filename=\"notes.webarchive\"",
-        "Cache-Control": "no-store"
-      }
-    });
-  })());
+  if (event.request.method !== "GET") return;
+  event.respondWith(
+    caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((cache) => cache.put(event.request, copy)).catch(() => {});
+      return res;
+    }).catch(() => caches.match("./index.html")))
+  );
 });

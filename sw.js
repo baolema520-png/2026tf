@@ -1,4 +1,4 @@
-const CACHE = "p2026-v5";
+const CACHE = "p2026-v6";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

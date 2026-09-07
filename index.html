@@ -382,7 +382,7 @@ p{min-height:2.5em;padding:.6em .7em;border:1px dashed #d2ae86;background:#fff7e
     $("minus").onclick = () => { fs = Math.max(14, fs - 2); applyFs(); };
     $("plus").onclick = () => { fs = Math.min(34, fs + 2); applyFs(); };
     $("copy").onclick = async () => {
-      await copyText(Q.join("\n\n"));
+      await copyText(allText());
       say("已复制");
     };
     $("notes").onclick = async () => {

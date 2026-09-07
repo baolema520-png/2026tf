@@ -171,9 +171,10 @@
         <button type="button" id="plus">A+</button>
         <span class="grow"></span>
         <button type="button" class="primary" id="copy">复制全部</button>
+        <button type="button" class="primary" id="notes">保存到备忘录</button>
         <button type="button" class="primary" id="pdf">保存 PDF</button>
         <button type="button" class="primary" id="epub">保存 EPUB</button>
-        <p class="hint">先在本页写笔记。PDF：系统打印窗口里选“存储为 PDF”。EPUB：用“图书”打开。以后要改内容，请回到本页再保存。</p>
+        <p class="hint">先在本页写笔记。备忘录：分享菜单里选“备忘录”。PDF：打印窗口里选“存储为 PDF”。EPUB：用“图书”打开。以后要改内容，请回到本页再保存。</p>
       </div>
       <div id="list"></div>
     </div>
@@ -238,6 +239,28 @@
     }
     function currentNotes() {
       return [].map.call(document.querySelectorAll(".item textarea"), (el) => el.value);
+    }
+    function allText() {
+      saveNotes();
+      const notes = currentNotes();
+      return Q.map((q, i) => {
+        const note = (notes[i] || "").trim();
+        return note ? q + "\n\n" + note : q;
+      }).join("\n\n————\n\n");
+    }
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        ta.remove();
+        return ok;
+      }
     }
     function crc32(bytes) {
       let c = ~0;
@@ -359,19 +382,22 @@ p{min-height:2.5em;padding:.6em .7em;border:1px dashed #d2ae86;background:#fff7e
     $("minus").onclick = () => { fs = Math.max(14, fs - 2); applyFs(); };
     $("plus").onclick = () => { fs = Math.min(34, fs + 2); applyFs(); };
     $("copy").onclick = async () => {
-      const text = Q.join("\n\n");
-      try {
-        await navigator.clipboard.writeText(text);
-        say("已复制");
-      } catch {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
-        say("已复制");
+      await copyText(Q.join("\n\n"));
+      say("已复制");
+    };
+    $("notes").onclick = async () => {
+      const text = allText();
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: "2026", text });
+          say("分享菜单里选“备忘录”");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+        }
       }
+      await copyText(text);
+      say("已复制，可粘贴到备忘录");
     };
     $("pdf").onclick = () => {
       saveNotes();

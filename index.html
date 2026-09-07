@@ -111,6 +111,27 @@
       font-size: var(--fs);
       line-height: 1.7;
     }
+    .item textarea {
+      display: block;
+      width: 100%;
+      min-height: 88px;
+      margin-top: 10px;
+      border: 1px dashed #d2ae86;
+      border-radius: 12px;
+      background: #fffaf4;
+      color: var(--ink);
+      font: inherit;
+      font-size: calc(var(--fs) - 1px);
+      line-height: 1.6;
+      padding: 10px;
+      resize: vertical;
+    }
+    .hint {
+      width: 100%;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
     .toast {
       position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
       background: #3d2416; color: #fff6ea; padding: 10px 14px; border-radius: 999px;
@@ -140,6 +161,7 @@
         <span class="grow"></span>
         <button type="button" class="primary" id="copy">复制全部</button>
         <button type="button" class="primary" id="dl">下载</button>
+        <p class="hint">iPhone/iPad：下载后到“文件”里点按 <b>notes.webarchive</b>，可用 Safari 打开并写笔记。</p>
       </div>
       <div id="list"></div>
     </div>
@@ -178,8 +200,71 @@
       const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, buf);
       return JSON.parse(new TextDecoder().decode(plain));
     }
+    function notesKey() { return "n2026"; }
+    function loadNotes() {
+      try { return JSON.parse(localStorage.getItem(notesKey()) || "[]"); } catch { return []; }
+    }
+    function saveNotes() {
+      const notes = [].map.call(document.querySelectorAll(".item textarea"), (el) => el.value);
+      localStorage.setItem(notesKey(), JSON.stringify(notes));
+    }
     function paint() {
-      $("list").innerHTML = Q.map((q) => `<article class="item">${q}</article>`).join("");
+      const saved = loadNotes();
+      $("list").innerHTML = Q.map((q, i) => {
+        const note = (saved[i] || "").replace(/</g, "&lt;");
+        return `<article class="item"><div>${q}</div><textarea placeholder="写笔记…">${note}</textarea></article>`;
+      }).join("");
+      [].forEach.call(document.querySelectorAll(".item textarea"), (el) => {
+        el.addEventListener("input", saveNotes);
+      });
+    }
+    function packPage() {
+      const notes = [].map.call(document.querySelectorAll(".item textarea"), (el) => el.value);
+      const items = Q.map((q, i) => {
+        const note = (notes[i] || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+        return `<section class="q"><p>${q}</p><textarea placeholder="写笔记…">${note}</textarea></section>`;
+      }).join("");
+      return `<!DOCTYPE html><html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>笔记</title>
+<style>
+body{margin:0;background:#f3e3cf;color:#4a2e1c;font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC",serif}
+.wrap{width:min(760px,92vw);margin:0 auto;padding:22px 0 64px}
+.q{background:#fff7ee;border:1px solid #e2c3a0;border-radius:16px;padding:14px;margin:0 0 14px}
+p{margin:0 0 10px;line-height:1.7;font-size:18px}
+textarea{width:100%;min-height:88px;border:1px dashed #d2ae86;border-radius:12px;padding:10px;background:#fffaf4;font:inherit;line-height:1.6;box-sizing:border-box}
+.tip{color:#7a5340;font-size:13px;margin:0 0 14px}
+</style></head><body><div class="wrap">
+<p class="tip">在“文件”中请打开 notes.webarchive。Safari 不能直接打开普通的 .html 本地文件。</p>
+${items}
+</div></body></html>`;
+    }
+    function toArchive(html) {
+      const raw = btoa(unescape(encodeURIComponent(html))).replace(/(.{76})/g, "$1\n");
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>WebMainResource</key>
+  <dict>
+    <key>WebResourceData</key>
+    <data>
+${raw}
+    </data>
+    <key>WebResourceMIMEType</key>
+    <string>text/html</string>
+    <key>WebResourceTextEncodingName</key>
+    <string>UTF-8</string>
+    <key>WebResourceURL</key>
+    <string>file:///notes.html</string>
+  </dict>
+</dict>
+</plist>`;
+    }
+    function pullFile(name, blob) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
     }
     function applyFs() {
       document.documentElement.style.setProperty("--fs", fs + "px");
@@ -228,43 +313,16 @@
       }
     };
     $("dl").onclick = () => {
-      const items = Q.map((q, i) => `
-        <section class="q">
-          <p>${q}</p>
-          <div class="n" contenteditable="true" data-i="${i}" placeholder="写笔记…"></div>
-        </section>`).join("");
-      const html = `<!DOCTYPE html><html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>笔记</title>
-<style>
-body{margin:0;background:#f3e3cf;color:#4a2e1c;font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC",serif}
-.wrap{width:min(760px,92vw);margin:0 auto;padding:22px 0 64px}
-.bar{position:sticky;top:0;padding:10px 0;background:#f3e3cf}
-button{border:0;border-radius:12px;padding:10px 14px;background:#c45c26;color:#fff8f1;font:inherit}
-.q{background:#fff7ee;border:1px solid #e2c3a0;border-radius:16px;padding:14px;margin:0 0 14px}
-p{margin:0 0 10px;line-height:1.7;font-size:18px}
-.n{min-height:88px;border:1px dashed #d2ae86;border-radius:12px;padding:10px;background:#fffaf4;line-height:1.6}
-.n:empty:before{content:attr(placeholder);color:#a07a60}
-.tip{color:#7a5340;font-size:13px}
-</style></head><body><div class="wrap">
-<div class="bar"><button id="save">保存笔记</button> <span class="tip">可在“文件”中打开，写下笔记后再点保存</span></div>
-${items}
-</div>
-<script>
-document.getElementById("save").onclick=function(){
-  var notes=[].map.call(document.querySelectorAll(".n"),function(n){return n.innerHTML});
-  var html=document.documentElement.outerHTML;
-  var blob=new Blob(["<!DOCTYPE html>\\n"+html],{type:"text/html;charset=utf-8"});
-  var a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download="notes.html";
-  a.click();
-};
-<\/script></body></html>`;
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "notes.html";
-      a.click();
-      say("已开始下载");
+      saveNotes();
+      const html = packPage();
+      const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      if (ios) {
+        pullFile("notes.webarchive", new Blob([toArchive(html)], { type: "application/x-webarchive" }));
+        say("已下载 webarchive，用 Safari 打开");
+      } else {
+        pullFile("notes.html", new Blob([html], { type: "text/html;charset=utf-8" }));
+        say("已开始下载");
+      }
     };
   </script>
 </body>
